@@ -56,6 +56,7 @@ enum domain_rule {
 	DOMAIN_RULE_ADDRESS_IPV6,
 	DOMAIN_RULE_IPSET,
 	DOMAIN_RULE_NAMESERVER,
+	DOMAIN_RULE_CHECKSPEED,
 	DOMAIN_RULE_MAX,
 };
 
@@ -89,6 +90,7 @@ typedef enum {
 #define BIND_FLAG_NO_SPEED_CHECK (1 << 5)
 #define BIND_FLAG_NO_CACHE (1 << 6)
 #define BIND_FLAG_NO_DUALSTACK_SELECTION (1 << 7)
+#define BIND_FLAG_FORCE_AAAA_SOA (1 << 8) 
 
 struct dns_rule_flags {
 	unsigned int flags;
@@ -199,6 +201,8 @@ extern int dns_conf_bind_ip_num;
 extern int dns_conf_tcp_idle_time;
 extern int dns_conf_cachesize;
 extern int dns_conf_prefetch;
+extern int dns_conf_serve_expired;
+extern int dns_conf_serve_expired_ttl;
 extern struct dns_servers dns_conf_servers[DNS_MAX_SERVERS];
 extern int dns_conf_server_num;
 

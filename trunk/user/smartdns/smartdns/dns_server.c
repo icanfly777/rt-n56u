@@ -205,6 +205,8 @@ static struct dns_server server;
 
 static tlog_log *dns_audit;
 
+static int _dns_server_prefetch_request(char *domain, dns_type_t qtype);
+
 static int _dns_server_forward_request(unsigned char *inpacket, int inpacket_len)
 {
 	tlog(TLOG_DEBUG, "forward request.\n");
@@ -259,8 +261,10 @@ static int _dns_server_is_return_soa(struct dns_request *request)
 		return 0;
 	}
 
-	if (dns_conf_force_AAAA_SOA == 1 && request->qtype == DNS_T_AAAA) {
-		return 1;
+	if (request->qtype == DNS_T_AAAA) {
+		if (_dns_server_has_bind_flag(request, BIND_FLAG_FORCE_AAAA_SOA) == 0 || dns_conf_force_AAAA_SOA == 1) {
+			return 1;
+		}
 	}
 
 	rule_flag = request->domain_rule.rules[DOMAIN_RULE_FLAGS];
@@ -1617,6 +1621,7 @@ static int dns_server_resolve_callback(char *domain, dns_result_type rtype, unsi
 
 		/* Not need to wait check result if only has one ip address */
 		if (ip_num == 1 && request_wait == 1) {
+			request->has_ping_result = 1;
 			_dns_server_request_complete(request);
 			_dns_server_request_remove(request);
 		}
@@ -1935,6 +1940,19 @@ errout:
 	return -1;
 }
 
+static void _dns_server_prolcess_speed_check_rule(struct dns_request *request)
+{
+	struct dns_domain_check_order *check_order = NULL;
+
+	/* get domain rule flag */
+	check_order = request->domain_rule.rules[DOMAIN_RULE_CHECKSPEED];
+	if (check_order == NULL) {
+		return;
+	}
+
+	request->check_order_list = check_order;
+}
+
 static int _dns_server_process_cache(struct dns_request *request)
 {
 	struct dns_cache *dns_cache = NULL;
@@ -1946,6 +1964,15 @@ static int _dns_server_process_cache(struct dns_request *request)
 
 	dns_cache = dns_cache_lookup(request->domain, request->qtype);
 	if (dns_cache == NULL) {
+		if (request->dualstack_selection && request->qtype == DNS_T_AAAA) {
+			dns_cache_A = dns_cache_lookup(request->domain, DNS_T_A);
+			if (dns_cache_A) {
+				tlog(TLOG_DEBUG, "No IPV6 Found, Force IPV4 perfered.");
+				dns_cache_release(dns_cache_A);
+				dns_cache_release(dns_cache);
+				return _dns_server_reply_SOA(DNS_RC_NOERROR, request);
+			}
+		}
 		goto errout;
 	}
 
@@ -1996,7 +2023,11 @@ static int _dns_server_process_cache(struct dns_request *request)
 		_dns_reply(request);
 	}
 
-	dns_cache_update(dns_cache);
+	if (dns_cache_get_ttl(dns_cache) == 0) {
+		_dns_server_prefetch_request(request->domain, request->qtype);
+	} else {
+		dns_cache_update(dns_cache);
+	}
 	dns_cache_release(dns_cache);
 
 	if (dns_cache_A) {
@@ -2109,6 +2140,17 @@ static const char *_dns_server_get_request_groupname(struct dns_request *request
 	return NULL;
 }
 
+static void _dns_server_check_set_passthrough(struct dns_request *request)
+{
+	if (request->check_order_list->order[0] == DOMAIN_CHECK_NONE) {
+		request->passthrough = 1;
+	}
+
+	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SPEED_CHECK) == 0) {
+		request->passthrough = 1;
+	}
+}
+
 static int _dns_server_do_query(struct dns_request *request, const char *domain, int qtype)
 {
 	int ret = -1;
@@ -2142,6 +2184,12 @@ static int _dns_server_do_query(struct dns_request *request, const char *domain,
 	if (_dns_server_process_address(request) == 0) {
 		goto clean_exit;
 	}
+
+	/* process speed check rule */
+	_dns_server_prolcess_speed_check_rule(request);
+
+	/* check and set passthrough */
+	_dns_server_check_set_passthrough(request);
 
 	/* process cache */
 	if (request->prefetch == 0) {
@@ -2184,17 +2232,6 @@ errout:
 	_dns_server_request_remove(request);
 	request = NULL;
 	return ret;
-}
-
-static void _dns_server_check_set_passthrough(struct dns_request *request, struct dns_server_conn_head *conn)
-{
-	if (request->check_order_list->order[0] == DOMAIN_CHECK_NONE) {
-		request->passthrough = 1;
-	}
-
-	if (_dns_server_has_bind_flag(request, BIND_FLAG_NO_SPEED_CHECK) == 0) {
-		request->passthrough = 1;
-	}
 }
 
 static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *inpacket, int inpacket_len, struct sockaddr_storage *local, socklen_t local_len,
@@ -2254,7 +2291,6 @@ static int _dns_server_recv(struct dns_server_conn_head *conn, unsigned char *in
 
 	memcpy(&request->localaddr, local, local_len);
 	_dns_server_request_set_client(request, conn);
-	_dns_server_check_set_passthrough(request, conn);
 	_dns_server_request_set_client_addr(request, from, from_len);
 	_dns_server_request_set_id(request, packet->head.id);
 	_dns_server_set_dualstack_selection(request);
@@ -2320,7 +2356,7 @@ int dns_server_query(char *domain, int qtype, dns_result_callback callback, void
 		goto errout;
 	}
 
-	_dns_server_request_release_complete(request, 0);
+	_dns_server_request_release_complete(request, 1);
 	return ret;
 errout:
 	if (request) {
@@ -3118,7 +3154,7 @@ int dns_server_init(void)
 		return -1;
 	}
 
-	if (dns_cache_init(dns_conf_cachesize) != 0) {
+	if (dns_cache_init(dns_conf_cachesize, dns_conf_serve_expired, dns_conf_serve_expired_ttl) != 0) {
 		tlog(TLOG_ERROR, "init cache failed.");
 		return -1;
 	}

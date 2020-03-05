@@ -131,10 +131,14 @@ dir_y						+= xl2tpd
 dir_$(CONFIG_FIRMWARE_INCLUDE_RPL2TP)		+= rp-l2tp
 dir_y						+= lldt
 dir_y						+= scripts
+dir_$(CONFIG_FIRMWARE_INCLUDE_MICROSOCKS)                       +=microsocks
+dir_$(CONFIG_FIRMWARE_INCLUDE_IPT2SOCKS)            +=ipt2socks
+dir_$(CONFIG_FIRMWARE_INCLUDE_ADGUARDHOME)      	+= adguardhome
 dir_$(CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS)      	+= jq
 dir_$(CONFIG_FIRMWARE_INCLUDE_SHADOWSOCKS)	        += pdnsd
 dir_$(CONFIG_FIRMWARE_INCLUDE_V2RAY)	        += v2ray
 dir_$(CONFIG_FIRMWARE_INCLUDE_TROJAN)	        += trojan
+dir_$(CONFIG_FIRMWARE_INCLUDE_KUMASOCKS)	+= kumasocks
 dir_$(OPENSSH_ENABLED)				+= openssh
 dir_$(DROPBEAR_ENABLED)				+= dropbear
 dir_$(CONFIG_FIRMWARE_INCLUDE_HTOP)		+= htop
@@ -170,6 +174,7 @@ dir_$(CONFIG_FIRMWARE_INCLUDE_NJIT_CLIENT)		+= njit-client
 dir_$(CONFIG_FIRMWARE_INCLUDE_MENTOHUST)		+= mentohust
 dir_$(CONFIG_FIRMWARE_INCLUDE_SMARTDNS)		+= smartdns
 dir_$(CONFIG_FIRMWARE_INCLUDE_CADDY)		+= caddy
+dir_$(CONFIG_FIRMWARE_INCLUDE_xTUN) 			+= xTun
 
 ifdef CONFIG_BLK_DEV_SD
 dir_$(CONFIG_FIRMWARE_INCLUDE_HDPARM)		+= hdparm
